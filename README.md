@@ -13,11 +13,12 @@ Risma provides a clean interface to chain functions and variables seamlessly.
 
 * **Variable Injection:** Easily replace placeholders with dynamic data.
 * **Function Chaining:** Pipe data through multiple functions using dot notation.
+* **Nested Placeholders:** Support for recursive placeholder resolution in function arguments.
 * **Global & Custom Functions:** Use native PHP functions or register your own logic.
 * **Class Integration:** Directly map class methods to your processing pipeline.
 * **Escaping Mechanism:** Built-in support for literal braces using `!{}`.
 * **Clean Syntax:** Intuitive `{var.func1.func2}` syntax.
-- Compatible with PHP 7.4+
+* Compatible with PHP 7.4+
 
 ---
 
@@ -82,6 +83,59 @@ echo $risma->render($text, []);
 // Output: Current Year: 2026
 ```
 
+## Built-in Functions
+
+Risma comes with several helpful built-in functions that you can use out of the box:
+
+### exists
+
+Returns `'1'` if the value is not empty or null, otherwise returns `'0'`.
+
+```php
+echo $risma->render('{name.exists}', ['name' => 'Hadi']);
+// Output: 1
+
+echo $risma->render('{name.exists}', ['name' => '']);
+// Output: 0
+```
+
+### ok
+
+Returns '1' if the value is truthy, otherwise returns '0'.
+
+```php
+echo $risma->render('{status.ok}', ['status' => true]);
+// Output: 1
+
+echo $risma->render('{status.ok}', ['status' => false]);
+// Output: 0
+```
+
+### prepend
+
+Adds a prefix to the beginning of the value.
+
+```php
+echo $risma->render('{name.prepend("Mr. ")}', ['name' => 'Hadi']);
+// Output: Mr. Hadi
+```
+
+### append
+
+Adds a suffix to the end of the value.
+
+```php
+echo $risma->render('{domain.append(".com")}', ['domain' => 'example']);
+// Output: example.com
+```
+
+You can also chain these with other functions:
+
+```php
+echo $risma->render('{name.strtoupper.prepend("Hello, ").append("!")}', ['name' => 'hadi']);
+// Output: Hello, HADI!
+```
+
 ## Advanced Configuration
 
 ### Custom Functions
@@ -113,12 +167,41 @@ echo $risma->render("{title.bold}", ['title' => 'Risma']);
 // Output: <b>Risma</b>
 ```
 
+### Nested Placeholders
+
+Risma supports nested placeholders, allowing you to embed variables and expressions inside function arguments.
+
+```php
+// Simple nested variable
+echo $risma->render('{@strtoupper("{name}")}', ['name' => 'hadi']);
+// Output: HADI
+
+// Multiple nested placeholders
+echo $risma->render('{@str_replace("{old}", "{new}", "{text}")}', [
+    'old' => 'foo',
+    'new' => 'bar',
+    'text' => 'hello foo world'
+]);
+// Output: hello bar world
+
+// Deep nesting with function chains
+echo $risma->render('{@sprintf("%s %s", "{@ucfirst("{first}")}", "{@ucfirst("{last}")}")}', [
+    'first' => 'hadi',
+    'last' => 'akbarzadeh'
+]);
+// Output: Hadi Akbarzadeh
+```
+
+Nested placeholders are recursively processed from the innermost to the outermost level, giving you full flexibility in building complex dynamic templates.
+
 ### Escaping
 
 If you need to display the braces literally, prefix them with an exclamation mark.
 
+```php
 echo $risma->render("This is !{ignored}", []);
 // Output: This is {ignored}
+```
 
 ## API Reference
 
@@ -143,6 +226,7 @@ Registers a class. Risma will look for methods within this class when processing
 | `{var.func}` | Pass variable to `func`. |
 | `{var.f1.f2}` | Chain: `f2(f1(var))`. |
 | `{@func()}` | Execute a function directly without a variable. |
+| `{@func("{var}")}` | Nested placeholder inside function arguments. |
 | `!{var}` | Escape the tag (returns `{var}`). |
 | `{var.func('arg')}` | Pass additional arguments. |
 

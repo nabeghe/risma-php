@@ -29,30 +29,70 @@ class RismaTest extends TestCase
     {
         return [
             'Basic variable replacement' => [
-                'Hello {name}', ['name' => 'World'], 'Hello World'
+                'Hello {name}', ['name' => 'World'], 'Hello World',
             ],
             'Function chaining (lowercase then ucfirst)' => [
-                '{name.strtolower.ucfirst}', ['name' => 'NABEGHE'], 'Nabeghe'
+                '{name.strtolower.ucfirst}', ['name' => 'NABEGHE'], 'Nabeghe',
             ],
             'Handling whitespace inside tags' => [
-                'Result: {  version  .  trim  }', ['version' => ' 1.0 '], 'Result: 1.0'
+                'Result: {  version  .  trim  }', ['version' => ' 1.0 '], 'Result: 1.0',
             ],
             'Escaped tags using exclamation mark' => [
-                'Display !{this} literally', [], 'Display {this} literally'
+                'Display !{this} literally', [], 'Display {this} literally',
             ],
             'Native PHP function with custom placeholder' => [
-                'Slug: {title.str_replace(" ", "-", "$")}', // '$' MUST be in quotes to be parsed as a string by eval
+                'Slug: {title.str_replace(" ", "-", "$")}',
                 ['title' => 'hello world'],
-                'Slug: hello-world'
+                'Slug: hello-world',
             ],
             'Direct function call using @ symbol' => [
-                'Year: {@date("Y")}', [], 'Year: ' . date('Y')
+                'Year: {@date("Y")}', [], 'Year: '.date('Y'),
             ],
             'Built-in "exists" function (truthy)' => [
-                '{val.exists}', ['val' => 'something'], '1'
+                '{val.exists}', ['val' => 'something'], '1',
             ],
             'Built-in "exists" function (falsy)' => [
-                '{val.exists}', ['val' => ''], '0'
+                '{val.exists}', ['val' => ''], '0',
+            ],
+            'Simple nested placeholder in function argument' => [
+                '{@strtoupper("{name}")}',
+                ['name' => 'hadi'],
+                'HADI',
+            ],
+            'Nested placeholder with function chain' => [
+                '{@str_repeat("{char.strtoupper}", 3)}',
+                ['char' => 'x'],
+                'XXX',
+            ],
+            'Double nesting with variables' => [
+                '{@trim("{@strtoupper("{name}")}")}',
+                ['name' => 'alice'],
+                'ALICE',
+            ],
+            'Nested placeholder with multiple arguments' => [
+                '{@str_replace("{old}", "{new}", "{text}")}',
+                ['old' => 'foo', 'new' => 'bar', 'text' => 'hello foo world'],
+                'hello bar world',
+            ],
+            'Nested with custom function chain' => [
+                '{prefix.append("{suffix}")}',
+                ['prefix' => 'Start', 'suffix' => 'End'],
+                'StartEnd',
+            ],
+            'Triple nested placeholders' => [
+                '{@sprintf("%s %s", "{@ucfirst("{first}")}", "{@ucfirst("{last}")}")}',
+                ['first' => 'hadi', 'last' => 'akbarzadeh'],
+                'Hadi Akbarzadeh',
+            ],
+            'Nested in middle of string' => [
+                'User: {@strtoupper("{name}")} - Age: {age}',
+                ['name' => 'bob', 'age' => '25'],
+                'User: BOB - Age: 25',
+            ],
+            'Complex nested with number formatting' => [
+                'Price: {@number_format({amount}, 2, ".", ",")} for {item}',
+                ['amount' => 1234.567, 'item' => 'Book'],
+                'Price: 1,234.57 for Book',
             ],
         ];
     }
@@ -62,8 +102,8 @@ class RismaTest extends TestCase
      */
     public function testCustomFunctionRegistration(): void
     {
-        $this->risma->addFunc('prefix', function($value, $prefix) {
-            return $prefix . $value;
+        $this->risma->addFunc('prefix', function ($value, $prefix) {
+            return $prefix.$value;
         });
 
         $result = $this->risma->render('{name.prefix("Mr. ")}', ['name' => 'John']);
@@ -75,8 +115,10 @@ class RismaTest extends TestCase
      */
     public function testClassMethodIntegration(): void
     {
-        $mockClass = new class {
-            public static function bold($text) {
+        $mockClass = new class
+        {
+            public static function bold($text)
+            {
                 return "**$text**";
             }
         };
@@ -103,5 +145,29 @@ class RismaTest extends TestCase
         $template = "Price: {amount.number_format(2, '.', ',')}";
         $result = $this->risma->render($template, ['amount' => 1500.5]);
         $this->assertSame('Price: 1,500.50', $result);
+    }
+
+    /**
+     * Test deeply nested placeholders with custom functions.
+     */
+    public function testDeeplyNestedWithCustomFunctions(): void
+    {
+        $this->risma->addFunc('wrap', function ($value, $before, $after) {
+            return $before.$value.$after;
+        });
+
+        $template = '{@wrap("{@strtoupper("{name}")}", "[", "]")}';
+        $result = $this->risma->render($template, ['name' => 'test']);
+        $this->assertSame('[TEST]', $result);
+    }
+
+    /**
+     * Test nested placeholders with escaped braces.
+     */
+    public function testNestedWithEscapedBraces(): void
+    {
+        $template = '{@sprintf("!{%s}", "{name}")}';
+        $result = $this->risma->render($template, ['name' => 'placeholder']);
+        $this->assertSame('{placeholder}', $result);
     }
 }
