@@ -5,8 +5,8 @@ use Throwable;
 
 /**
  * Risma
- *  A lightweight and flexible string processing engine for PHP.
- *  developed by [https://github.com/nabeghe](https://github.com/nabeghe).
+ * A lightweight and flexible string processing engine for PHP.
+ * developed by [https://github.com/nabeghe](https://github.com/nabeghe).
  */
 class Risma
 {
@@ -18,7 +18,12 @@ class Risma
     /**
      * @var array Registered classes for method resolution.
      */
-    protected array $classes = [];
+    protected array $classes = [Functions::class];
+
+    /**
+     * @var array Registered objects for method resolution.
+     */
+    protected array $objects = [];
 
     /**
      * @var int Maximum recursion depth to prevent infinite loops.
@@ -30,57 +35,54 @@ class Risma
      */
     protected int $currentDepth = 0;
 
-    public function __construct()
-    {
-        $this->defineDefaultFuncs();
-    }
-
-    /**
-     * Defines built-in default functions.
-     */
-    protected function defineDefaultFuncs(): void
-    {
-        $this->funcs['exists'] ??= function ($value) {
-            return ($value === null || $value === '') ? '0' : '1';
-        };
-
-        $this->funcs['ok'] ??= function ($value) {
-            return $value ? '1' : '0';
-        };
-
-        $this->funcs['prepend'] ??= function ($input, $prefix) {
-            return $prefix.$input;
-        };
-
-        $this->funcs['append'] ??= function ($input, $suffix) {
-            return $input.$suffix;
-        };
-    }
-
     /**
      * Register a custom function.
+     *
      * @param  string  $name  The name used in the template.
      * @param  callable  $callback  The logic to execute.
+     * @param  bool  $prepend  Add to beginning instead of end.
      */
-    public function addFunc(string $name, callable $callback): void
+    public function addFunc(string $name, callable $callback, bool $prepend = false): void
     {
-        $this->funcs[$name] = $callback;
+        if ($prepend) {
+            $this->funcs = [$name => $callback] + $this->funcs;
+        } else {
+            $this->funcs[$name] = $callback;
+        }
     }
 
     /**
      * Register a class to expose its methods to the engine.
+     *
      * @param  string  $className  Full namespace of the class.
+     * @param  bool  $prepend  Add to beginning instead of end.
      */
-    public function addClass(string $className): void
+    public function addClass(string $className, bool $prepend = false): void
     {
         if (class_exists($className)) {
-            $this->classes[] = $className;
+            $prepend
+                ? array_unshift($this->classes, $className)
+                : $this->classes[] = $className;
         }
+    }
+
+    /**
+     * Register an object to expose its methods to the engine.
+     *
+     * @param  object  $object  The object.
+     * @param  bool  $prepend  Add to beginning instead of end.
+     */
+    public function addObject(object $object, bool $prepend = false): void
+    {
+        $prepend
+            ? array_unshift($this->objects, $object)
+            : $this->objects[] = $object;
     }
 
     /**
      * Renders the template string by replacing placeholders.
      * Uses recursive regex to match nested braces correctly.
+     *
      * @param  string  $text  The raw string with placeholders like {var.func}.
      * @param  array  $vars  Key-value pairs of data.
      * @param  bool  $default  If true, returns empty string for missing variables.
@@ -134,6 +136,7 @@ class Risma
 
     /**
      * Processes the content inside a single {} block.
+     *
      * @throws Exception
      */
     protected function processExpression(string $expression, array $vars, bool $default): string
@@ -175,6 +178,7 @@ class Risma
 
     /**
      * Executes a single function within the chain.
+     *
      * @param  string  $token  The function part, e.g., "func1" or "func('arg')".
      * @param  mixed  $prevValue  The value from the previous step in the chain.
      * @param  bool  $isFirstCall  Whether this is the start of a direct @ call.
@@ -191,8 +195,8 @@ class Risma
 
             if ($argsString !== null && trim($argsString) !== '') {
                 try {
-                    $code = "return [$argsString];";
-                    $args = eval($code);
+                    // Replaced eval() with a safe custom parser
+                    $args = $this->parseArguments($argsString);
                 } catch (Throwable $e) {
                     throw new Exception("Error parsing arguments for '$funcName'.");
                 }
@@ -218,7 +222,117 @@ class Risma
     }
 
     /**
+     * Safely parses arguments without eval(), supporting internal unescaped quotes and escaped quotes.
+     */
+    protected function parseArguments(string $argsString): array
+    {
+        $args = [];
+        $buffer = '';
+        $inQuote = false;
+        $quoteChar = '';
+        $len = strlen($argsString);
+        $isValueQuoted = false;
+
+        for ($i = 0; $i < $len; $i++) {
+            $char = $argsString[$i];
+
+            if ($inQuote) {
+                // Convert escaped quotes (e.g., \") to actual quotes and ignore the backslash
+                if ($char === '\\' && $i + 1 < $len && ($argsString[$i + 1] === '"' || $argsString[$i + 1] === "'")) {
+                    $buffer .= $argsString[$i + 1];
+                    $i++;
+                    continue;
+                }
+
+                if ($char === $quoteChar) {
+                    $isEnd = true;
+                    // Lookahead to detect if the quote is truly the end of the input
+                    for ($j = $i + 1; $j < $len; $j++) {
+                        $nextChar = $argsString[$j];
+                        if (trim($nextChar) === '') {
+                            continue; // Skip spaces
+                        }
+                        // If a comma or closing parenthesis is reached, the string is truly finished
+                        if ($nextChar === ',' || $nextChar === ')') {
+                            break;
+                        }
+                        $isEnd = false;
+                        break;
+                    }
+
+                    if ($isEnd) {
+                        $inQuote = false;
+                        $quoteChar = '';
+                    } else {
+                        // It's an internal quote (e.g., "sal"am")
+                        $buffer .= $char;
+                    }
+                } else {
+                    $buffer .= $char;
+                }
+            } else {
+                if ($char === '"' || $char === "'") {
+                    // Start of a new quoted string
+                    if (trim($buffer) === '') {
+                        $buffer = ''; // Clear potential spaces before the quote starts
+                        $inQuote = true;
+                        $quoteChar = $char;
+                        $isValueQuoted = true;
+                    } else {
+                        $buffer .= $char;
+                    }
+                } elseif ($char === ',') {
+                    // Argument boundary
+                    $args[] = $this->finalizeArgument($buffer, $isValueQuoted);
+                    $buffer = '';
+                    $isValueQuoted = false;
+                } else {
+                    // Ignore spaces after the quote ends and before the comma
+                    if ($isValueQuoted && trim($char) === '') {
+                        continue;
+                    }
+                    $buffer .= $char;
+                }
+            }
+        }
+
+        // Add the last remaining argument in the buffer
+        if (trim($buffer) !== '' || $isValueQuoted) {
+            $args[] = $this->finalizeArgument($buffer, $isValueQuoted);
+        }
+
+        return $args;
+    }
+
+    /**
+     * Casts raw string values to proper PHP types.
+     */
+    protected function finalizeArgument(string $val, bool $isQuoted)
+    {
+        if ($isQuoted) {
+            return $val;
+        }
+
+        $val = trim($val);
+        if (strtolower($val) === 'true') {
+            return true;
+        }
+        if (strtolower($val) === 'false') {
+            return false;
+        }
+        if (strtolower($val) === 'null') {
+            return null;
+        }
+        if (is_numeric($val)) {
+            return strpos($val, '.') !== false ? (float) $val : (int) $val;
+        }
+
+        return $val;
+    }
+
+    /**
      * Resolves the function name to a callable (Custom -> Class -> Global).
+     *
      * @throws Exception
      */
     protected function resolveCallback(string $name): callable
@@ -228,14 +342,21 @@ class Risma
             return $this->funcs[$name];
         }
 
-        // 2. Check registered class methods
+        // 2. Check registered object methods
+        foreach ($this->objects as $object) {
+            if (method_exists($object, $name)) {
+                return [$object, $name];
+            }
+        }
+
+        // 3. Check registered class methods
         foreach ($this->classes as $class) {
             if (method_exists($class, $name)) {
                 return [$class, $name];
             }
         }
 
-        // 3. Check global PHP functions
+        // 4. Check global PHP functions
         if (function_exists($name)) {
             return $name;
         }
@@ -258,17 +379,46 @@ class Risma
         for ($i = 0; $i < $len; $i++) {
             $char = $str[$i];
 
-            // Quote management
-            if (($char === '"' || $char === "'") && ($i === 0 || $str[$i - 1] !== '\\')) {
+            // 1. Ignore escaped quotes at the chain separator level
+            if ($inQuote && $char === '\\' && $i + 1 < $len && ($str[$i + 1] === '"' || $str[$i + 1] === "'")) {
+                $buffer .= $char.$str[$i + 1];
+                $i++;
+                continue;
+            }
+
+            // 2. Manage quotes using Lookahead technique
+            if ($char === '"' || $char === "'") {
                 if (!$inQuote) {
                     $inQuote = true;
                     $quoteChar = $char;
+                    $buffer .= $char;
+                    continue;
                 } elseif ($char === $quoteChar) {
-                    $inQuote = false;
+                    $isEnd = true;
+                    for ($j = $i + 1; $j < $len; $j++) {
+                        $nextChar = $str[$j];
+                        if (trim($nextChar) === '') {
+                            continue;
+                        }
+
+                        // At the function chain splitting level, the next character to terminate the string must be a comma, closing parenthesis, or dot
+                        if ($nextChar === ',' || $nextChar === ')' || $nextChar === '.') {
+                            break;
+                        }
+                        $isEnd = false;
+                        break;
+                    }
+
+                    if ($isEnd) {
+                        $inQuote = false;
+                        $quoteChar = '';
+                    }
+                    $buffer .= $char;
+                    continue;
                 }
             }
 
-            // Parentheses management (only if not inside quotes)
+            // 3. Manage nested parentheses
             if (!$inQuote) {
                 if ($char === '(') {
                     $stack++;
@@ -278,7 +428,7 @@ class Risma
                 }
             }
 
-            // Split by dot only at the root level (not in quotes/parentheses)
+            // 4. Split by dot (only at the root level and outside quotes)
             if ($char === '.' && $stack === 0 && !$inQuote) {
                 $parts[] = trim($buffer);
                 $buffer = '';
