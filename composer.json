@@ -24,13 +24,19 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Nabeghe\\Risma\\Tests\\": "src/"
+            "Tests\\": "tests/"
         }
     },
     "require": {
         "php": ">=7.4"
     },
     "require-dev": {
-        "phpunit/phpunit": "9.6"
+        "pestphp/pest": "^4.7",
+        "pestphp/pest-plugin": "^4.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     }
 }
